@@ -15,6 +15,7 @@ from torch_geometric.nn.pool import avg_pool
 
 from EGINNDataset import EGINNDataset
 from baseGNN import GAT
+from config import Config
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='Cora')
@@ -141,8 +142,8 @@ class EGINN(torch.nn.Module):
             callee_inter_interval_x = torch.tensor([])
 
         target_nodes_num = len(target_intra_interval_x)
-        callee_mask = torch.zeros(len(callee_inter_interval_x), target_nodes_num).bool()
-        all_mask = torch.zeros(target_nodes_num).bool()
+        callee_mask = torch.zeros(len(callee_inter_interval_x), target_nodes_num).bool().to(device)
+        all_mask = torch.zeros(target_nodes_num).bool().to(device)
 
         node_index_offset = 0
         for target_index in range(len(target_calling_mask)):
@@ -226,8 +227,8 @@ class EGINN(torch.nn.Module):
         return self.gatInter.fc(target_inter_interval_x)
 
 
-model = EGINN(trainDataset.num_features, args.hidden_channels, trainDataset.num_classes,
-            args.heads).to(device)
+model = EGINN(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
+            Config.heads).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
 # print(trainDataset.num_classes)
 

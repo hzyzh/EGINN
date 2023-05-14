@@ -13,6 +13,7 @@ from torch_geometric.nn import GATConv, TopKPooling, global_mean_pool
 
 from ginnDataset import GINNDataset
 from baseGNN import GAT
+from config import Config
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='Cora')
@@ -72,8 +73,8 @@ class GINN(torch.nn.Module):
         return self.gatInter.fc(inter_interval_x)
 
 
-model = GINN(trainDataset.num_features, args.hidden_channels, trainDataset.num_classes,
-            args.heads).to(device)
+model = GINN(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
+            Config.heads).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
 # print(trainDataset.num_features)
 

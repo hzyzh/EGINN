@@ -12,6 +12,7 @@ from torch_geometric.logging import init_wandb, log
 from torch_geometric.nn import GATConv, TopKPooling, global_mean_pool
 
 from dataset import PDGDataset
+from config import Config
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='Cora')
@@ -29,11 +30,16 @@ init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
 #path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
 #dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'PDGDataset')
-inputJsonPath = "./intervals-projects-defects4j-train-CFG.json"
+
+inputJsonPath = ["jsondata/intervals-projects-defects4j-train-CFG.json",
+                 "jsondata/intervals-projects-dotjar-train-CFG.json",
+                 "jsondata/intervals-projects-fse14-train-CFG.json"]
 trainDataset = PDGDataset(inputJsonPath, path, "train.pt")
-inputJsonPath = "./intervals-projects-defects4j-val-CFG.json"
+
+inputJsonPath = ["jsondata/intervals-projects-defects4j-test-CFG.json",
+                 "jsondata/intervals-projects-dotjar-test-CFG.json",
+                 "jsondata/intervals-projects-fse14-test-CFG.json"]
 valDataset = PDGDataset(inputJsonPath, path, "val.pt")
-inputJsonPath = "./intervals-projects-defects4j-test-CFG.json"
 testDataset = PDGDataset(inputJsonPath, path, "test.pt")
 #FIXME: shuffle=false and batchsize may be larger
 train_loader = DataLoader(trainDataset, batch_size=10, shuffle=False)
@@ -67,8 +73,8 @@ class GAT(torch.nn.Module):
         return self.fc(x)
 
 
-model = GAT(trainDataset.num_features, args.hidden_channels, trainDataset.num_classes,
-            args.heads).to(device)
+model = GAT(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
+            Config.heads).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
 
 def init_center_c(train_loader, net, eps=0.1):

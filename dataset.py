@@ -8,7 +8,7 @@ class PDGDataset(InMemoryDataset):
     urlOrPath = "./input.json"
     savedFileName = "train.pt"
     def __init__(self, inputJsonPath, root, savedFileName, transform=None, pre_transform=None, pre_filter=None):
-        self.urlOrPath = inputJsonPath
+        self.inputJsonPath = inputJsonPath
         self.savedFileName = savedFileName
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
@@ -24,7 +24,14 @@ class PDGDataset(InMemoryDataset):
     def download(self):
         # Download to `self.raw_dir`.
         # download_url(url, self.raw_dir)
-        shutil.copyfile(self.urlOrPath, os.path.join(self.raw_dir, self.urlOrPath))
+        jsonData = []
+        for fileName in self.inputJsonPath:
+            with open(fileName, 'r') as f:
+                jsonData += json.load(f)
+        self.urlOrPath = os.path.join(self.raw_dir, "GINN-"+self.savedFileName+".json")
+
+        with open(self.urlOrPath, "w") as outfile:
+            json.dump(jsonData, outfile)
 
     def graph_to_COO(self, graph):
         row = []

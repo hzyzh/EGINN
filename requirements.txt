@@ -5,3 +5,6 @@ torch-sparse
 torch-cluster
 torch-spline-conv
 torch-geometric
+sklearn
+torch
+matplotlib

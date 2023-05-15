@@ -316,7 +316,7 @@ class EGINNDataset(InMemoryDataset):
     def process(self):
         # Read data into huge `Data` list.
         jsonData = []
-        with open(self.urlOrPath, 'r') as f:
+        with open(self.raw_paths[0], 'r') as f:
             jsonData += json.load(f)
         data_list = []
         totalNum = len(jsonData)

@@ -14,39 +14,40 @@ from torch_geometric.nn import GATConv, TopKPooling, global_mean_pool
 from dataset import PDGDataset
 from config import Config
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='Cora')
-parser.add_argument('--hidden_channels', type=int, default=8)
-parser.add_argument('--heads', type=int, default=8)
-parser.add_argument('--lr', type=float, default=0.005)
-parser.add_argument('--epochs', type=int, default=200)
-parser.add_argument('--wandb', action='store_true', help='Track experiment')
-args = parser.parse_args()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='Cora')
+    parser.add_argument('--hidden_channels', type=int, default=8)
+    parser.add_argument('--heads', type=int, default=8)
+    parser.add_argument('--lr', type=float, default=0.005)
+    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--wandb', action='store_true', help='Track experiment')
+    args = parser.parse_args()
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
-           hidden_channels=args.hidden_channels, lr=args.lr, device=device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
+               hidden_channels=args.hidden_channels, lr=args.lr, device=device)
 
-#path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
-#dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'PDGDataset')
+    #path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
+    #dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'PDGDataset')
 
-inputJsonPath = ["jsondata/intervals-projects-defects4j-train-CFG.json",
-                 "jsondata/intervals-projects-dotjar-train-CFG.json",
-                 "jsondata/intervals-projects-fse14-train-CFG.json"]
-trainDataset = PDGDataset(inputJsonPath, path, "train.pt")
+    inputJsonPath = ["jsondata/intervals-projects-defects4j-train-CFG.json",
+                     "jsondata/intervals-projects-dotjar-train-CFG.json",
+                     "jsondata/intervals-projects-fse14-train-CFG.json"]
+    trainDataset = PDGDataset(inputJsonPath, path, "train.pt")
 
-inputJsonPath = ["jsondata/intervals-projects-defects4j-test-CFG.json",
-                 "jsondata/intervals-projects-dotjar-test-CFG.json",
-                 "jsondata/intervals-projects-fse14-test-CFG.json"]
-valDataset = PDGDataset(inputJsonPath, path, "val.pt")
-testDataset = PDGDataset(inputJsonPath, path, "test.pt")
-#FIXME: shuffle=false and batchsize may be larger
-train_loader = DataLoader(trainDataset, batch_size=10, shuffle=False)
-val_loader = DataLoader(valDataset, batch_size=10)
-test_loader = DataLoader(testDataset, batch_size=10)
-#data = dataset[0].to(device)
-#data.train_mask
+    inputJsonPath = ["jsondata/intervals-projects-defects4j-test-CFG.json",
+                     "jsondata/intervals-projects-dotjar-test-CFG.json",
+                     "jsondata/intervals-projects-fse14-test-CFG.json"]
+    valDataset = PDGDataset(inputJsonPath, path, "val.pt")
+    testDataset = PDGDataset(inputJsonPath, path, "test.pt")
+    #FIXME: shuffle=false and batchsize may be larger
+    train_loader = DataLoader(trainDataset, batch_size=10, shuffle=False)
+    val_loader = DataLoader(valDataset, batch_size=10)
+    test_loader = DataLoader(testDataset, batch_size=10)
+    #data = dataset[0].to(device)
+    #data.train_mask
 
 class GAT(torch.nn.Module):
     rep_dim = 0
@@ -72,10 +73,10 @@ class GAT(torch.nn.Module):
         x = global_mean_pool(x, nodeIDs)
         return self.fc(x)
 
-
-model = GAT(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
-            Config.heads).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
+if __name__ == '__main__':
+    model = GAT(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
+                Config.heads).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
 
 def init_center_c(train_loader, net, eps=0.1):
     """Initialize hypersphere center c as the mean from an initial forward pass on the data."""
@@ -144,6 +145,8 @@ def run():
         train_correct, _ = test(train_loader)
         val_correct, _ = test(val_loader)
         test_correct, res = test(test_loader)
+        # print(f'val correct/total: {val_correct.sum().item()}/{val_correct.size(0)};' +
+        #       f' test correct/total: {test_correct.sum().item()}/{test_correct.size(0)}')
         train_acc = train_correct.sum().item() / train_correct.size(0)
         val_acc = val_correct.sum().item() / val_correct.size(0)
         tmp_test_acc = test_correct.sum().item() / test_correct.size(0)

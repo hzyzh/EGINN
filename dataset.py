@@ -28,7 +28,7 @@ class PDGDataset(InMemoryDataset):
         for fileName in self.inputJsonPath:
             with open(fileName, 'r') as f:
                 jsonData += json.load(f)
-        self.urlOrPath = os.path.join(self.raw_dir, "GINN-"+self.savedFileName+".json")
+        self.urlOrPath = os.path.join(self.raw_dir, "GNN-"+self.savedFileName+".json")
 
         with open(self.urlOrPath, "w") as outfile:
             json.dump(jsonData, outfile)

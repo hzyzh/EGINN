@@ -4,51 +4,54 @@ import sys, traceback, pdb
 
 import torch
 import torch.nn.functional as F
+from torch import nn
 
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
 from torch_geometric.loader import DataLoader
 from torch_geometric.logging import init_wandb, log
 from torch_geometric.nn import GATConv, TopKPooling, global_mean_pool
+from sklearn.metrics import roc_auc_score
 
 from ginnDataset import GINNDataset
 from baseGNN import GAT
 from config import Config
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='Cora')
-parser.add_argument('--hidden_channels', type=int, default=8)
-parser.add_argument('--heads', type=int, default=8)
-parser.add_argument('--lr', type=float, default=0.005)
-parser.add_argument('--epochs', type=int, default=200)
-parser.add_argument('--wandb', action='store_true', help='Track experiment')
-args = parser.parse_args()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='Cora')
+    parser.add_argument('--hidden_channels', type=int, default=8)
+    parser.add_argument('--heads', type=int, default=8)
+    parser.add_argument('--lr', type=float, default=0.005)
+    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--wandb', action='store_true', help='Track experiment')
+    args = parser.parse_args()
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
-           hidden_channels=args.hidden_channels, lr=args.lr, device=device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
+               hidden_channels=args.hidden_channels, lr=args.lr, device=device)
 
-#path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
-#dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'GINNDataset')
-inputJsonPath = ["jsondata/intervals-projects-defects4j-train.json",
-                 "jsondata/intervals-projects-dotjar-train.json",
-                 "jsondata/intervals-projects-fse14-train.json",
-                 ]
-trainDataset = GINNDataset(inputJsonPath, path, "train.pt")
-# inputJsonPath = "./intervals-projects-defects4j-test.json"
-inputJsonPath = ["jsondata/intervals-projects-defects4j-test.json",
-                 "jsondata/intervals-projects-dotjar-test.json",
-                 "jsondata/intervals-projects-fse14-test.json"]
-valDataset = GINNDataset(inputJsonPath, path, "val.pt")
-testDataset = GINNDataset(inputJsonPath, path, "test.pt")
-#FIXME: shuffle=false and batchsize may be larger
+    #path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
+    #dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'GINNDataset')
+    inputJsonPath = ["jsondata/intervals-projects-defects4j-train.json",
+                     "jsondata/intervals-projects-dotjar-train.json",
+                     "jsondata/intervals-projects-fse14-train.json",
+                     ]
+    trainDataset = GINNDataset(inputJsonPath, path, "train.pt")
+    # inputJsonPath = "./intervals-projects-defects4j-test.json"
+    inputJsonPath = ["jsondata/intervals-projects-defects4j-test.json",
+                     "jsondata/intervals-projects-dotjar-test.json",
+                     "jsondata/intervals-projects-fse14-test.json"]
+    valDataset = GINNDataset(inputJsonPath, path, "val.pt")
+    testDataset = GINNDataset(inputJsonPath, path, "test.pt")
+    #FIXME: shuffle=false and batchsize may be larger
 
-train_loader = DataLoader(trainDataset, batch_size=10, shuffle=False)
-val_loader = DataLoader(valDataset, batch_size=10)
-test_loader = DataLoader(testDataset, batch_size=10)
-#data = dataset[0].to(device)
-#data.train_mask
+    train_loader = DataLoader(trainDataset, batch_size=10, shuffle=False)
+    val_loader = DataLoader(valDataset, batch_size=10)
+    test_loader = DataLoader(testDataset, batch_size=10)
+    #data = dataset[0].to(device)
+    #data.train_mask
 
 class GINN(torch.nn.Module):
     rep_dim = 0
@@ -58,6 +61,10 @@ class GINN(torch.nn.Module):
         self.gatIntra = GAT(in_channels, hidden_channels, out_channels, heads)
         self.gatInter = GAT(16, hidden_channels, out_channels, heads)
         self.rep_dim = out_channels
+        self.gatLower = nn.Sequential(
+            nn.Linear(16 * 2, 16),
+            nn.ReLU(inplace=True)
+        )
 
 
     def forward(self, intra_interval_x, intra_interval_edge_index, intra_interval_edge_attr, inter_interval_edge_index, inter_interval_edge_attr, intra_interval_node_ids, inter_interval_node_ids):
@@ -67,16 +74,19 @@ class GINN(torch.nn.Module):
             # the second arg of global_mean_pool:
             inter_interval_x = global_mean_pool(intra_interval_x, intra_interval_node_ids)
             inter_interval_x = self.gatInter.message_passing(inter_interval_x, inter_interval_edge_index, inter_interval_edge_attr, inter_interval_node_ids)
-            intra_interval_x = torch.index_select(inter_interval_x, 0, intra_interval_node_ids)
+            # intra_interval_x = torch.index_select(inter_interval_x, 0, intra_interval_node_ids)
+            intra_interval_x_lower = torch.index_select(inter_interval_x, 0, intra_interval_node_ids)
+            intra_interval_x = torch.column_stack((intra_interval_x, intra_interval_x_lower))
+            intra_interval_x = self.gatLower(intra_interval_x)
 
         inter_interval_x = global_mean_pool(inter_interval_x, inter_interval_node_ids)
         return self.gatInter.fc(inter_interval_x)
 
-
-model = GINN(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
-            Config.heads).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
-# print(trainDataset.num_features)
+if __name__ == '__main__':
+    model = GINN(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
+                Config.heads).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
+    # print(trainDataset.num_features)
 
 def train():
     model.train()
@@ -98,13 +108,18 @@ def train():
 def test(loader):
     model.eval()
     corrects, total_ratio = [], 0
+    scores, y = [], []
     allRes = []
     groundtruths = []
     for data in loader:
         data = data.to(device)
-        pred = model(data.intra_interval_x, data.intra_interval_edge_index, data.intra_interval_edge_attr, data.inter_interval_edge_index, data.inter_interval_edge_attr, data.intra_interval_node_ids, data.batch).argmax(-1)
+        out = model(data.intra_interval_x, data.intra_interval_edge_index, data.intra_interval_edge_attr, data.inter_interval_edge_index, data.inter_interval_edge_attr, data.intra_interval_node_ids, data.batch)
+        pred = out.argmax(-1)
+        score = out.softmax(-1)
         corrects.append(pred.eq(data.y.to(torch.long)))
-    return torch.cat(corrects, dim=0), allRes
+        scores.append(score)
+        y.append(data.y.to(torch.long))
+    return torch.cat(corrects, dim=0), torch.cat(scores, dim=0),torch.cat(y, dim=0) , allRes
 
 
 def run():
@@ -112,17 +127,19 @@ def run():
     test_acc = 0
     for epoch in range(1, args.epochs + 1):
         loss = train()
-        train_correct, _ = test(train_loader)
-        val_correct, _ = test(val_loader)
-        test_correct, res = test(test_loader)
+        train_correct, _, _, _ = test(train_loader)
+        val_correct, _, _, _ = test(val_loader)
+        test_correct, test_score, test_y, res = test(test_loader)
         train_acc = train_correct.sum().item() / train_correct.size(0)
         val_acc = val_correct.sum().item() / val_correct.size(0)
         tmp_test_acc = test_correct.sum().item() / test_correct.size(0)
+        auc_score = roc_auc_score(test_y.numpy(), test_score[:,1].numpy())
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             test_acc = tmp_test_acc
         log(Epoch=epoch, Loss=loss, Train=train_acc, Val=val_acc, Test=test_acc)
+        print(f'auc: {auc_score}')
 
 def debug():
     for data in train_loader:

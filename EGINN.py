@@ -17,40 +17,42 @@ from EGINNDataset import EGINNDataset
 from baseGNN import GAT
 from config import Config
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='Cora')
-parser.add_argument('--hidden_channels', type=int, default=8)
-parser.add_argument('--heads', type=int, default=8)
-parser.add_argument('--lr', type=float, default=0.005)
-parser.add_argument('--epochs', type=int, default=200)
-parser.add_argument('--wandb', action='store_true', help='Track experiment')
-args = parser.parse_args()
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
-           hidden_channels=args.hidden_channels, lr=args.lr, device=device)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='Cora')
+    parser.add_argument('--hidden_channels', type=int, default=8)
+    parser.add_argument('--heads', type=int, default=8)
+    parser.add_argument('--lr', type=float, default=0.005)
+    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--wandb', action='store_true', help='Track experiment')
+    args = parser.parse_args()
 
-#path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
-#dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'EGINNDataset')
-# inputJsonPath = "./eintervals-example.json"
-inputJsonPath = ["jsondata/intervals-projects-defects4j-train-EGINN.json",
-                 "jsondata/intervals-projects-dotjar-train-EGINN.json",
-                 "jsondata/intervals-projects-fse14-train-EGINN.json",
-                 ]
-trainDataset = EGINNDataset(inputJsonPath, path, "train.pt")
-inputJsonPath = ["jsondata/intervals-projects-defects4j-test-EGINN.json",
-                 "jsondata/intervals-projects-dotjar-test-EGINN.json",
-                 "jsondata/intervals-projects-fse14-test-EGINN.json"]
-valDataset = EGINNDataset(inputJsonPath, path, "val.pt")
-testDataset = EGINNDataset(inputJsonPath, path, "test.pt")
-#FIXME: shuffle=false and batchsize may be larger
 
-train_loader = DataLoader(trainDataset, batch_size=4, shuffle=False)
-val_loader = DataLoader(valDataset, batch_size=4)
-test_loader = DataLoader(testDataset, batch_size=4)
-#data = dataset[0].to(device)
-#data.train_mask
+    init_wandb(name=f'GAT-{args.dataset}', heads=args.heads, epochs=args.epochs,
+               hidden_channels=args.hidden_channels, lr=args.lr, device=device)
+
+    #path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
+    #dataset = Planetoid(path, args.dataset, transform=T.NormalizeFeatures())
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'EGINNDataset')
+    # inputJsonPath = "./eintervals-example.json"
+    inputJsonPath = ["jsondata/intervals-projects-defects4j-train-EGINN.json",
+                     "jsondata/intervals-projects-dotjar-train-EGINN.json",
+                     "jsondata/intervals-projects-fse14-train-EGINN.json",
+                     ]
+    trainDataset = EGINNDataset(inputJsonPath, path, "train.pt")
+    inputJsonPath = ["jsondata/intervals-projects-defects4j-test-EGINN.json",
+                     "jsondata/intervals-projects-dotjar-test-EGINN.json",
+                     "jsondata/intervals-projects-fse14-test-EGINN.json"]
+    valDataset = EGINNDataset(inputJsonPath, path, "val.pt")
+    testDataset = EGINNDataset(inputJsonPath, path, "test.pt")
+    #FIXME: shuffle=false and batchsize may be larger
+
+    train_loader = DataLoader(trainDataset, batch_size=4, shuffle=False)
+    val_loader = DataLoader(valDataset, batch_size=4)
+    test_loader = DataLoader(testDataset, batch_size=4)
+    #data = dataset[0].to(device)
+    #data.train_mask
 
 class EGINN(torch.nn.Module):
     rep_dim = 0
@@ -60,6 +62,10 @@ class EGINN(torch.nn.Module):
         self.gatIntra = GAT(in_channels, hidden_channels, out_channels, heads)
         self.gatInter = GAT(16, hidden_channels, out_channels, heads)
         self.rep_dim = out_channels
+        self.gatLower = nn.Sequential(
+            nn.Linear(16 * 2, 16),
+            nn.ReLU(inplace=True)
+        )
         self.gatCaller = nn.Sequential(
             nn.Linear(16 * 2, hidden_channels * 2),
             nn.ReLU(inplace=True),
@@ -108,7 +114,10 @@ class EGINN(torch.nn.Module):
                                                                         caller_inter_interval_edge_index,
                                                                         caller_inter_interval_edge_attr,
                                                                         caller_inter_interval_node_ids)
-                caller_intra_interval_x = torch.index_select(caller_inter_interval_x, 0, caller_intra_interval_node_ids)
+                # caller_intra_interval_x = torch.index_select(caller_inter_interval_x, 0, caller_intra_interval_node_ids)
+                caller_intra_interval_x_lower = torch.index_select(caller_inter_interval_x, 0, caller_intra_interval_node_ids)
+                caller_intra_interval_x = torch.column_stack((caller_intra_interval_x, caller_intra_interval_x_lower))
+                caller_intra_interval_x = self.gatLower(caller_intra_interval_x)
 
             caller_inter_interval_x = global_mean_pool(caller_inter_interval_x, caller_inter_interval_node_ids)
         else:
@@ -135,7 +144,10 @@ class EGINN(torch.nn.Module):
                                                                         callee_inter_interval_edge_index,
                                                                         callee_inter_interval_edge_attr,
                                                                         callee_inter_interval_node_ids)
-                callee_intra_interval_x = torch.index_select(callee_inter_interval_x, 0, callee_intra_interval_node_ids)
+                # callee_intra_interval_x = torch.index_select(callee_inter_interval_x, 0, callee_intra_interval_node_ids)
+                callee_intra_interval_x_lower = torch.index_select(callee_inter_interval_x, 0, callee_intra_interval_node_ids)
+                callee_intra_interval_x = torch.column_stack((callee_intra_interval_x, callee_intra_interval_x_lower))
+                callee_intra_interval_x = self.gatLower(callee_intra_interval_x)
 
             callee_inter_interval_x = global_mean_pool(callee_inter_interval_x, callee_inter_interval_node_ids)
         else:
@@ -174,7 +186,10 @@ class EGINN(torch.nn.Module):
                                                                     target_inter_interval_edge_index,
                                                                     target_inter_interval_edge_attr,
                                                                     target_inter_interval_node_ids)
-            target_intra_interval_x = torch.index_select(target_inter_interval_x, 0, target_intra_interval_node_ids)
+            # target_intra_interval_x = torch.index_select(target_inter_interval_x, 0, target_intra_interval_node_ids)
+            target_intra_interval_x_lower = torch.index_select(target_inter_interval_x, 0, target_intra_interval_node_ids)
+            target_intra_interval_x = torch.column_stack((target_intra_interval_x, target_intra_interval_x_lower))
+            target_intra_interval_x = self.gatLower(target_intra_interval_x)
             # interprocedural message passing:
             # ------------------------------------------------------------------------------
             # caller interprocedural message passing
@@ -226,11 +241,11 @@ class EGINN(torch.nn.Module):
         target_inter_interval_x = global_mean_pool(target_inter_interval_x, target_inter_interval_node_ids)
         return self.gatInter.fc(target_inter_interval_x)
 
-
-model = EGINN(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
-            Config.heads).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
-# print(trainDataset.num_classes)
+if __name__ == '__main__':
+    model = EGINN(trainDataset.num_features, Config.hidden_channels, trainDataset.num_classes,
+                Config.heads).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
+    # print(trainDataset.num_classes)
 
 def train():
     model.train()

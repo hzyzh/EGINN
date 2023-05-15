@@ -60,9 +60,9 @@ class GAT(torch.nn.Module):
         self.rep_dim = out_channels
 
     def message_passing(self, x, edge_index, edge_attr, nodeIDs):
-        x = F.dropout(x, p=0.6, training=self.training)
+        x = F.dropout(x, p=0.1, training=self.training)
         x = F.relu(self.conv1(x, edge_index, edge_attr))
-        x = F.dropout(x, p=0.6, training=self.training)
+        x = F.dropout(x, p=0.1, training=self.training)
         x = F.relu(self.conv2(x, edge_index, edge_attr))
         # TODO: maybe pick the top-K nodes for aggreating graph representations.
         return x
@@ -108,6 +108,7 @@ def train():
         data = data.to(device)
         optimizer.zero_grad()
         out = model(data.x, data.edge_index, data.edge_attr, data.batch)
+        print(out, data.y)
         loss = F.cross_entropy(out, data.y)
         total_loss += loss.item() * data.num_graphs
         loss.backward()

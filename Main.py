@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import os.path as osp
 from torch_geometric.loader import DataLoader
+from torch_geometric.logging import log
 from sklearn.metrics import roc_auc_score
 import matplotlib.pyplot as plt
 
@@ -135,6 +136,9 @@ def create_data_loader(index):
         eginn_train_loader[index] = DataLoader(eginnTrainDataset, batch_size=4, shuffle=False)
         eginn_val_loader[index] = DataLoader(eginnValDataset, batch_size=4)
         eginn_test_loader[index] = DataLoader(eginnTestDataset, batch_size=4)
+        #print(f'gnn Dataset {index}\'s length, Train: {len(gnnTrainDataset)}, Val: {len(gnnValDataset)}')
+        #print(f'ginn Dataset {index}\'s length, Train: {len(ginnTrainDataset)}, Val: {len(ginnValDataset)}')
+        #print(f'eginn Dataset {index}\'s length, Train: {len(eginnTrainDataset)}, Val: {len(eginnValDataset)}')
 
     num_features_gnn = gnnTrainDataset.num_features
     num_features_ginn = ginnTrainDataset.num_features
@@ -191,24 +195,30 @@ def test(model_type, model, loader):
     return torch.cat(corrects, dim=0), torch.cat(scores, dim=0),torch.cat(y, dim=0) , allRes
 
 
-def run(model_type, epochs, lr, index):
+def run(model_type, epochs, lr, index, optimizer_type=0):
 
     if model_type == 0:
         model = GAT(in_channels_gnn, Config.hidden_channels, 2, Config.heads).to(device)
         train_loader = gnn_train_loader[index]
         val_loader = gnn_val_loader[index]
         test_loader = gnn_test_loader[index]
+        # print("GNN")
     elif model_type == 1:
         model = GINN(in_channels_ginn, Config.hidden_channels, 2, Config.heads).to(device)
         train_loader = ginn_train_loader[index]
         val_loader = ginn_val_loader[index]
         test_loader = ginn_test_loader[index]
+        # print("GINN")
     else:
         model = EGINN(in_channels_eginn, Config.hidden_channels, 2, Config.heads).to(device)
         train_loader = eginn_train_loader[index]
         val_loader = eginn_val_loader[index]
         test_loader = eginn_test_loader[index]
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
+        # print("EGINN")
+    if optimizer_type == 1:
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=5e-4)
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
 
     best_val_acc = best_val_auc = 0
     best_val_acc_in_5 = best_val_auc_in_5 = 0
@@ -220,7 +230,9 @@ def run(model_type, epochs, lr, index):
         val_correct, val_score, val_y, res = test(model_type, model, val_loader)
         train_acc = train_correct.sum().item() / train_correct.size(0)
         val_acc = val_correct.sum().item() / val_correct.size(0)
-        auc_score = roc_auc_score(val_y.numpy(), val_score[:,1].numpy())
+        val_y = val_y.to(torch.device('cpu'))
+        val_score = val_score.to(torch.device('cpu'))
+        auc_score = roc_auc_score(val_y, val_score[:,1])
 
         if val_acc > best_val_acc_in_5:
             best_val_acc_in_5 = val_acc
@@ -234,6 +246,9 @@ def run(model_type, epochs, lr, index):
             acc_per_5epoch.append(best_val_acc_in_5)
             auc_per_5epoch.append(best_val_auc_in_5)
             best_val_acc_in_5 = best_val_auc_in_5 = 0
+        # log(Epoch=epoch, Loss=loss, Train=train_acc, Test=val_acc)
+    del model
+    del optimizer
     return best_val_acc, best_val_auc, acc_per_5epoch, auc_per_5epoch
 
 def main():
@@ -270,16 +285,13 @@ def main():
             f.write(f'EGINN best accuracy: {eginn_acc}, auc: {eginn_auc}\n')
         return gnn_acc_per5, gnn_auc_per5, ginn_acc_per5, ginn_auc_per5, eginn_acc_per5, eginn_auc_per5
 
-    caption = "performance on epochs curve"
-    gnn_acc5, gnn_auc5, ginn_acc5, ginn_auc5, eginn_acc5, eginn_auc5 = run_for_epochs_curve()
-
     def run_for_each_dataset():
-        GNN_acc = GINN_acc = EGINN_acc = []
-        GNN_auc = GINN_auc = EGINN_auc = []
+        GNN_acc, GINN_acc, EGINN_acc = [], [], []
+        GNN_auc, GINN_auc, EGINN_auc = [], [], []
         for i in range(3):
-            gnn_acc, gnn_auc, _, _ = run(model_type=0, epochs=50, lr=0.005, index=i)
-            ginn_acc, ginn_auc, _, _ = run(model_type=1, epochs=50, lr=0.005, index=i)
-            eginn_acc, eginn_auc, _, _ = run(model_type=2, epochs=50, lr=0.005, index=i)
+            gnn_acc, gnn_auc, _, _ = run(model_type=0, epochs=500, lr=0.005, index=i, optimizer_type=1)
+            ginn_acc, ginn_auc, _, _ = run(model_type=1, epochs=500, lr=0.005, index=i, optimizer_type=1)
+            eginn_acc, eginn_auc, _, _ = run(model_type=2, epochs=500, lr=0.005, index=i, optimizer_type=1)
             GNN_acc.append(gnn_acc)
             GNN_auc.append(gnn_auc)
             GINN_acc.append(ginn_acc)
@@ -293,101 +305,249 @@ def main():
                 f.write(f'GINN best accuracy: {GINN_acc[i]}, auc: {GINN_auc[i]}\n')
                 f.write(f'EGINN best accuracy: {EGINN_acc[i]}, auc: {EGINN_auc[i]}\n\n')
 
-    caption = "performance on different dataset"
-    run_for_each_dataset()
+    def run_for_different_optim_on_each_dataset():
+        GNN_acc, GINN_acc, EGINN_acc = [], [], []
+        GNN_auc, GINN_auc, EGINN_auc = [], [], []
+        GNN_acc2, GINN_acc2, EGINN_acc2 = [], [], []
+        GNN_auc2, GINN_auc2, EGINN_auc2 = [], [], []
+        for i in range(3):
+            gnn_acc, gnn_auc, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=200, lr=0.005, index=i)
+            ginn_acc, ginn_auc, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=200, lr=0.005, index=i)
+            eginn_acc, eginn_auc, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=200, lr=0.005, index=i)
+            gnn_acc2, gnn_auc2, gnn_acc_per5_2, gnn_auc_per5_2 = run(model_type=0, epochs=200, lr=0.005, index=i, optimizer_type=1)
+            ginn_acc2, ginn_auc2, ginn_acc_per5_2, ginn_auc_per5_2 = run(model_type=1, epochs=200, lr=0.005, index=i, optimizer_type=1)
+            eginn_acc2, eginn_auc2, eginn_acc_per5_2, eginn_auc_per5_2 = run(model_type=2, epochs=200, lr=0.005, index=i, optimizer_type=1)
+            GNN_acc.append(gnn_acc)
+            GNN_auc.append(gnn_auc)
+            GINN_acc.append(ginn_acc)
+            GINN_auc.append(ginn_auc)
+            EGINN_acc.append(eginn_acc)
+            EGINN_auc.append(eginn_auc)
+            GNN_acc2.append(gnn_acc2)
+            GNN_auc2.append(gnn_auc2)
+            GINN_acc2.append(ginn_acc2)
+            GINN_auc2.append(ginn_auc2)
+            EGINN_acc2.append(eginn_acc2)
+            EGINN_auc2.append(eginn_auc2)
+            x = [xx for xx in range(5, 201, 5)]
+            # auc curves
+            plt.plot(x, gnn_auc_per5, label='GNN, Adam')
+            plt.plot(x, ginn_auc_per5, label='GINN, Adam')
+            plt.plot(x, eginn_auc_per5, label='EGINN, Adam')
+            plt.plot(x, gnn_auc_per5_2, label='GNN, SGD')
+            plt.plot(x, ginn_auc_per5_2, label='GINN, SGD')
+            plt.plot(x, eginn_auc_per5_2, label='EGINN, SGD')
+            plt.xlabel('Epoch')
+            plt.ylabel('AUC')
+            plt.legend()
+            plt.savefig(f'figs/AUC_curve_on_{dataset_name[i]}.png')
+            plt.cla()
+            # acc curves
+            plt.plot(x, gnn_acc_per5, label='GNN, Adam')
+            plt.plot(x, ginn_acc_per5, label='GINN, Adam')
+            plt.plot(x, eginn_acc_per5, label='EGINN, Adam')
+            plt.plot(x, gnn_acc_per5_2, label='GNN, SGD')
+            plt.plot(x, ginn_acc_per5_2, label='GINN, SGD')
+            plt.plot(x, eginn_acc_per5_2, label='EGINN, SGD')
+            plt.xlabel('Epoch')
+            plt.ylabel('Accuracy')
+            plt.legend()
+            plt.savefig(f'figs/Accuracy_curve_on_{dataset_name[i]}.png')
+            plt.cla()
+        with open("out/performance-on-each-dataset.txt", "w") as f:
+            for i in range(3):
+                f.write(f'  Performance on {dataset_name[i]}:\n')
+                f.write(f'GNN with Adam best accuracy: {GNN_acc[i]}, auc: {GNN_auc[i]}\n')
+                f.write(f'    with SGD best accuracy:  {GNN_acc2[i]}, auc: {GNN_auc2[i]}\n')
+                f.write(f'GINN with Adam best accuracy: {GINN_acc[i]}, auc: {GINN_auc[i]}\n')
+                f.write(f'     with SGD best accuracy:  {GINN_acc2[i]}, auc: {GINN_auc2[i]}\n')
+                f.write(f'EGINN with Adam best accuracy: {EGINN_acc[i]}, auc: {EGINN_auc[i]}\n')
+                f.write(f'      with SGD best accuracy:  {EGINN_acc2[i]}, auc: {EGINN_auc2[i]}\n\n')
+
+    def SGD0001_on_each_dataset():
+        for i in range(3):
+            _, _, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=500, lr=0.001, index=i, optimizer_type=1)
+            _, _, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=500, lr=0.001, index=i, optimizer_type=1)
+            _, _, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=500, lr=0.001, index=i, optimizer_type=1)
+
+            x = [xx for xx in range(5, 501, 5)]
+            # auc curves
+            plt.plot(x, gnn_auc_per5, label='GNN')
+            plt.plot(x, ginn_auc_per5, label='GINN')
+            plt.plot(x, eginn_auc_per5, label='EGINN')
+            plt.xlabel('Epoch')
+            plt.ylabel('AUC')
+            plt.legend()
+            plt.savefig(f'figs/SGD_AUC_lr0001_on_{dataset_name[i]}.png')
+            plt.cla()
+            # acc curves
+            plt.plot(x, gnn_acc_per5, label='GNN')
+            plt.plot(x, ginn_acc_per5, label='GINN')
+            plt.plot(x, eginn_acc_per5, label='EGINN')
+            plt.xlabel('Epoch')
+            plt.ylabel('Accuracy')
+            plt.legend()
+            plt.savefig(f'figs/SGD_Accuracy_lr0001_on_{dataset_name[i]}.png')
+            plt.cla()
+        return gnn_acc_per5, gnn_auc_per5, ginn_acc_per5, ginn_auc_per5, eginn_acc_per5, eginn_auc_per5
+
+    def SGD001_on_each_dataset():
+        for i in range(3):
+            _, _, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=500, lr=0.01, index=i, optimizer_type=1)
+            _, _, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=500, lr=0.01, index=i, optimizer_type=1)
+            _, _, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=500, lr=0.01, index=i, optimizer_type=1)
+            _, _, gnn_acc_per5_2, gnn_auc_per5_2 = run(model_type=0, epochs=500, lr=0.01, index=i)
+
+            x = [xx for xx in range(5, 501, 5)]
+            # auc curves
+            plt.plot(x, gnn_auc_per5, label='GNN, SGD')
+            plt.plot(x, ginn_auc_per5, label='GINN, SGD')
+            plt.plot(x, eginn_auc_per5, label='EGINN, SGD')
+            plt.plot(x, gnn_auc_per5_2, label='GNN, Adam')
+            plt.xlabel('Epoch')
+            plt.ylabel('AUC')
+            plt.legend()
+            plt.savefig(f'figs/SGD_AUC_lr001_on_{dataset_name[i]}.png')
+            plt.cla()
+            # acc curves
+            plt.plot(x, gnn_acc_per5, label='GNN')
+            plt.plot(x, ginn_acc_per5, label='GINN')
+            plt.plot(x, eginn_acc_per5, label='EGINN')
+            plt.plot(x, gnn_acc_per5_2, label='GNN, Adam')
+            plt.xlabel('Epoch')
+            plt.ylabel('Accuracy')
+            plt.legend()
+            plt.savefig(f'figs/SGD_Accuracy_lr001_on_{dataset_name[i]}.png')
+            plt.cla()
+        return gnn_acc_per5, gnn_auc_per5, ginn_acc_per5, ginn_auc_per5, eginn_acc_per5, eginn_auc_per5
+
+    gnn_acc001, gnn_auc001, ginn_acc001, ginn_auc001, eginn_acc001, eginn_auc001 = SGD001_on_each_dataset()
+    print("complete experiment 1!")
+
+    gnn_acc0001, gnn_auc0001, ginn_acc0001, ginn_auc0001, eginn_acc0001, eginn_auc0001 = SGD0001_on_each_dataset()
+    print("complete experiment 2!")
 
     def run_for_different_lr():
-        GNN_acc_per5 = GINN_acc_per5 = EGINN_acc_per5 = []
-        GNN_auc_per5 = GINN_auc_per5 = EGINN_auc_per5 = []
-        gnn_acc, gnn_auc, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=200, lr=0.001, index=0)
-        ginn_acc, ginn_auc, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=200, lr=0.001, index=0)
-        eginn_acc, eginn_auc, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=200, lr=0.001, index=0)
+        GNN_acc_per5, GINN_acc_per5, EGINN_acc_per5 = [], [], []
+        GNN_auc_per5, GINN_auc_per5, EGINN_auc_per5 = [], [], []
+
+        gnn_acc, gnn_auc, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=500, lr=0.0005, index=2, optimizer_type=1)
+        ginn_acc, ginn_auc, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=500, lr=0.0005, index=2, optimizer_type=1)
+        eginn_acc, eginn_auc, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=500, lr=0.0005, index=2, optimizer_type=1)
         GNN_acc_per5.append(gnn_acc_per5)
         GINN_acc_per5.append(ginn_acc_per5)
         EGINN_acc_per5.append(eginn_acc_per5)
         GNN_auc_per5.append(gnn_auc_per5)
         GINN_auc_per5.append(ginn_auc_per5)
         EGINN_auc_per5.append(eginn_auc_per5)
-        GNN_acc_per5.append(gnn_acc5)
-        GINN_acc_per5.append(ginn_acc5)
-        EGINN_acc_per5.append(eginn_acc5)
-        GNN_auc_per5.append(gnn_auc5)
-        GINN_auc_per5.append(ginn_auc5)
-        EGINN_auc_per5.append(eginn_auc5)
-        gnn_acc, gnn_auc, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=200, lr=0.01, index=0)
-        ginn_acc, ginn_auc, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=200, lr=0.01, index=0)
-        eginn_acc, eginn_auc, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=200, lr=0.01, index=0)
+        GNN_acc_per5.append(gnn_acc0001)
+        GINN_acc_per5.append(ginn_acc0001)
+        EGINN_acc_per5.append(eginn_acc0001)
+        GNN_auc_per5.append(gnn_auc0001)
+        GINN_auc_per5.append(ginn_auc0001)
+        EGINN_auc_per5.append(eginn_auc0001)
+        gnn_acc, gnn_auc, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=500, lr=0.002, index=2, optimizer_type=1)
+        ginn_acc, ginn_auc, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=500, lr=0.002, index=2, optimizer_type=1)
+        eginn_acc, eginn_auc, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=500, lr=0.002, index=2, optimizer_type=1)
         GNN_acc_per5.append(gnn_acc_per5)
         GINN_acc_per5.append(ginn_acc_per5)
         EGINN_acc_per5.append(eginn_acc_per5)
         GNN_auc_per5.append(gnn_auc_per5)
         GINN_auc_per5.append(ginn_auc_per5)
         EGINN_auc_per5.append(eginn_auc_per5)
-        x = [i for i in range(5, 201, 5)]
+        gnn_acc, gnn_auc, gnn_acc_per5, gnn_auc_per5 = run(model_type=0, epochs=500, lr=0.005, index=2, optimizer_type=1)
+        ginn_acc, ginn_auc, ginn_acc_per5, ginn_auc_per5 = run(model_type=1, epochs=500, lr=0.005, index=2, optimizer_type=1)
+        eginn_acc, eginn_auc, eginn_acc_per5, eginn_auc_per5 = run(model_type=2, epochs=500, lr=0.005, index=2, optimizer_type=1)
+        GNN_acc_per5.append(gnn_acc_per5)
+        GINN_acc_per5.append(ginn_acc_per5)
+        EGINN_acc_per5.append(eginn_acc_per5)
+        GNN_auc_per5.append(gnn_auc_per5)
+        GINN_auc_per5.append(ginn_auc_per5)
+        EGINN_auc_per5.append(eginn_auc_per5)
+        GNN_acc_per5.append(gnn_acc001)
+        GINN_acc_per5.append(ginn_acc001)
+        EGINN_acc_per5.append(eginn_acc001)
+        GNN_auc_per5.append(gnn_auc001)
+        GINN_auc_per5.append(ginn_auc001)
+        EGINN_auc_per5.append(eginn_auc001)
+        x = [i for i in range(5, 501, 5)]
         # auc curves
-        plt.plot(x, GNN_auc_per5[0], label='l=0.001')
-        plt.plot(x, GNN_auc_per5[1], label='l=0.005')
-        plt.plot(x, GNN_auc_per5[2], label='l=0.01')
+        plt.plot(x, GNN_auc_per5[0], label='l=0.0005')
+        plt.plot(x, GNN_auc_per5[1], label='l=0.001')
+        plt.plot(x, GNN_auc_per5[2], label='l=0.002')
+        plt.plot(x, GNN_auc_per5[3], label='l=0.005')
+        plt.plot(x, GNN_auc_per5[4], label='l=0.01')
         plt.xlabel('Epoch')
         plt.ylabel('AUC')
         plt.title('GNN')
         plt.legend()
-        plt.savefig('figs/GNN_AUC_curve.png')
+        plt.savefig('figs/SGD_GNN_AUC_curve.png')
         plt.cla()
         # acc curves
-        plt.plot(x, GNN_acc_per5[0], label='l=0.001')
-        plt.plot(x, GNN_acc_per5[1], label='l=0.005')
-        plt.plot(x, GNN_acc_per5[2], label='l=0.01')
+        plt.plot(x, GNN_acc_per5[0], label='l=0.0005')
+        plt.plot(x, GNN_acc_per5[1], label='l=0.001')
+        plt.plot(x, GNN_acc_per5[2], label='l=0.002')
+        plt.plot(x, GNN_acc_per5[3], label='l=0.005')
+        plt.plot(x, GNN_acc_per5[4], label='l=0.01')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy')
         plt.title('GNN')
         plt.legend()
-        plt.savefig('figs/GNN_Accuracy_curve.png')
+        plt.savefig('figs/SGD_GNN_Accuracy_curve.png')
         plt.cla()
 
         # auc curves
-        plt.plot(x, GINN_auc_per5[0], label='l=0.001')
-        plt.plot(x, GINN_auc_per5[1], label='l=0.005')
-        plt.plot(x, GINN_auc_per5[2], label='l=0.01')
+        plt.plot(x, GINN_auc_per5[0], label='l=0.0005')
+        plt.plot(x, GINN_auc_per5[1], label='l=0.001')
+        plt.plot(x, GINN_auc_per5[2], label='l=0.002')
+        plt.plot(x, GINN_auc_per5[3], label='l=0.005')
+        plt.plot(x, GINN_auc_per5[4], label='l=0.01')
         plt.xlabel('Epoch')
         plt.ylabel('AUC')
         plt.title('GINN')
         plt.legend()
-        plt.savefig('figs/GINN_AUC_curve.png')
+        plt.savefig('figs/SGD_GINN_AUC_curve.png')
         plt.cla()
         # acc curves
-        plt.plot(x, GINN_acc_per5[0], label='l=0.001')
-        plt.plot(x, GINN_acc_per5[1], label='l=0.005')
-        plt.plot(x, GINN_acc_per5[2], label='l=0.01')
+        plt.plot(x, GINN_acc_per5[0], label='l=0.0005')
+        plt.plot(x, GINN_acc_per5[1], label='l=0.001')
+        plt.plot(x, GINN_acc_per5[2], label='l=0.002')
+        plt.plot(x, GINN_acc_per5[3], label='l=0.005')
+        plt.plot(x, GINN_acc_per5[4], label='l=0.01')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy')
         plt.title('GINN')
         plt.legend()
-        plt.savefig('figs/GINN_Accuracy_curve.png')
+        plt.savefig('figs/SGD_GINN_Accuracy_curve.png')
         plt.cla()
 
         # auc curves
-        plt.plot(x, EGINN_auc_per5[0], label='l=0.001')
-        plt.plot(x, EGINN_auc_per5[1], label='l=0.005')
-        plt.plot(x, EGINN_auc_per5[2], label='l=0.01')
+        plt.plot(x, EGINN_auc_per5[0], label='l=0.0005')
+        plt.plot(x, EGINN_auc_per5[1], label='l=0.001')
+        plt.plot(x, EGINN_auc_per5[2], label='l=0.002')
+        plt.plot(x, EGINN_auc_per5[3], label='l=0.005')
+        plt.plot(x, EGINN_auc_per5[4], label='l=0.01')
         plt.xlabel('Epoch')
         plt.ylabel('AUC')
         plt.title('EGINN')
         plt.legend()
-        plt.savefig('figs/EGINN_AUC_curve.png')
+        plt.savefig('figs/SGD_EGINN_AUC_curve.png')
         plt.cla()
         # acc curves
-        plt.plot(x, EGINN_acc_per5[0], label='l=0.001')
-        plt.plot(x, EGINN_acc_per5[1], label='l=0.005')
-        plt.plot(x, EGINN_acc_per5[2], label='l=0.01')
+        plt.plot(x, EGINN_acc_per5[0], label='l=0.0005')
+        plt.plot(x, EGINN_acc_per5[1], label='l=0.001')
+        plt.plot(x, EGINN_acc_per5[2], label='l=0.002')
+        plt.plot(x, EGINN_acc_per5[3], label='l=0.005')
+        plt.plot(x, EGINN_acc_per5[4], label='l=0.01')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy')
         plt.title('EGINN')
         plt.legend()
-        plt.savefig('figs/EGINN_Accuracy_curve.png')
+        plt.savefig('figs/SGD_EGINN_Accuracy_curve.png')
         plt.cla()
 
     run_for_different_lr()
+    print("complete all experiments!")
 
 if __name__ == '__main__':
     try:

@@ -1,10 +1,33 @@
-## EGINN
+## EGINN demo
 
-所有数据（.json文件）储存在./jsondata/目录下，EGINN会自动将该目录下的所有文件名形如 "*-EGINN.json" 的文件合并读入
+demo.py程序会训练并测试一个简单的EGINN模型，需要用户将训练数据和测试数据通过参数传递给程序。
 
-运行EGINN，输入指令：
+训练数据传递格式形如：
 
-```sh
-python EGINN.py
+```bash
+--train TRAIN1 TRAIN2 TRAIN3 ...
+```
+
+其中TRAIN均为训练数据(.json文件)的路径，且至少要接收一个参数
+
+测试数据传递格式形如：
+
+```bash
+--test TEST1 TEST2 TEST3 ...
+```
+
+其中TEST均为测试数据(.json文件)的路径。--test为可选参数，若不提供，则默认使用训练集进行测试
+
+#### 数据
+
+所有数据（.json文件）都储存在./jsondata/目录下。**每次更换训练或测试数据时，都需要将 ../data 内的所有文件删除**！
+
+#### 示例
+
+输入指令：
+
+```shell
+rm -f ../data
+python .\demo.py --train .\jsondata\intervals-projects-defects4j-Array-train-EGINN.json .\jsondata\intervals-projects-defects4j-CCE-train-EGINN.json --test .\jsondata\intervals-projects-defects4j-CCE-test-EGINN.json .\jsondata\intervals-projects-defects4j-Array-test-EGINN.json
 ```
 

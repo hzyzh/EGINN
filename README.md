@@ -28,6 +28,6 @@ demo.py程序会训练并测试一个简单的EGINN模型，需要用户将训�
 
 ```shell
 rm -f ../data
-python .\demo.py --train .\jsondata\intervals-projects-defects4j-Array-train-EGINN.json .\jsondata\intervals-projects-defects4j-CCE-train-EGINN.json --test .\jsondata\intervals-projects-defects4j-CCE-test-EGINN.json .\jsondata\intervals-projects-defects4j-Array-test-EGINN.json
+python3 ./demo.py --train ./jsondata/input.json
 ```
 

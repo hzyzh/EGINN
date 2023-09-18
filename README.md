@@ -27,7 +27,7 @@ demo.py程序会训练并测试一个简单的EGINN模型，需要用户将训�
 输入指令：
 
 ```shell
-rm -f ../data
+rm -rf ../data
 python3 ./demo.py --train ./jsondata/input.json
 ```
 
